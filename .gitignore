@@ -1,0 +1,17 @@
+node_modules
+dist
+.DS_Store
+server/public
+vite.config.ts.*
+*.tar.gz
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Local / platform state
+.local
+
+# Scratch / paste buffers (keep attached_assets for real assets)
+attached_assets/Pasted-*.txt
