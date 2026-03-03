@@ -22,8 +22,6 @@ CoreFlow is live on Railway:
 
 ![CoreFlow workflow generation and analysis](docs/screenshot.png)
 
-> To update: take a screenshot of the live app and save it to `docs/screenshot.png`.
-
 ## Tech stack
 
 | Layer     | Technology                                                                 |
