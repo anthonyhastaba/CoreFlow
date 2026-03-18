@@ -14,7 +14,7 @@ CoreFlow helps you:
 
 ## Live demo
 
-CoreFlow is live on Railway:
+CoreFlow is live:
 
 - **App**: https://coreflow.cc/
 
