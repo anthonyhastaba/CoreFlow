@@ -59,6 +59,7 @@ CoreFlow is live on Railway:
 
 - Node.js 20+
 - PostgreSQL instance (local or hosted, e.g. Neon)
+- [Clerk](https://clerk.com) account (free tier works) — create an app and grab the publishable key
 
 ### Local setup
 
@@ -94,12 +95,13 @@ By default the app runs on the port specified by `PORT` (or `5000` if unset).
 
 All configuration is provided via `.env` (never commit this file):
 
-| Variable          | Required | Description                                   |
-|-------------------|----------|-----------------------------------------------|
-| `DATABASE_URL`    | Yes      | PostgreSQL connection string                  |
-| `OPENAI_API_KEY`  | Yes      | OpenAI API key used for workflow generation   |
-| `OPENAI_BASE_URL` | No       | Custom OpenAI base URL (defaults to api.openai.com) |
-| `PORT`            | No       | Server port (default `5000`)                  |
+| Variable                     | Required | Description                                          |
+|------------------------------|----------|------------------------------------------------------|
+| `DATABASE_URL`               | Yes      | PostgreSQL connection string                         |
+| `OPENAI_API_KEY`             | Yes      | OpenAI API key used for workflow generation          |
+| `VITE_CLERK_PUBLISHABLE_KEY` | Yes      | Clerk publishable key (from Clerk dashboard)         |
+| `OPENAI_BASE_URL`            | No       | Custom OpenAI base URL (defaults to api.openai.com)  |
+| `PORT`                       | No       | Server port (default `5000`)                         |
 
 See `.env.example` for a concrete template.
 
