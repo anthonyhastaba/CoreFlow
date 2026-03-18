@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import OpenAI from "openai";
+import { getAuth, requireAuth } from "@clerk/express";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -31,12 +32,16 @@ const TOOL_COSTS: Record<string, number> = {
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.get(api.workflows.list.path, async (req, res) => {
-    const workflows = await storage.getWorkflows();
+    const { userId } = getAuth(req);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+    const workflows = await storage.getWorkflows(userId);
     res.json(workflows);
   });
 
   app.get(api.workflows.get.path, async (req, res) => {
-    const workflow = await storage.getWorkflow(Number(req.params.id));
+    const { userId } = getAuth(req);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+    const workflow = await storage.getWorkflow(Number(req.params.id), userId);
     if (!workflow) {
       return res.status(404).json({ message: 'Workflow not found' });
     }
@@ -52,34 +57,49 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.post(api.workflows.share.path, async (req, res) => {
-    const workflow = await storage.getWorkflow(Number(req.params.id));
+    const { userId } = getAuth(req);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+    const workflow = await storage.getWorkflow(Number(req.params.id), userId);
     if (!workflow) {
       return res.status(404).json({ message: 'Workflow not found' });
     }
     const shareId = workflow.shareId || nanoid();
-    const updated = await storage.updateWorkflow(workflow.id, { isShared: true, shareId });
+    const updated = await storage.updateWorkflow(workflow.id, userId, { isShared: true, shareId });
     res.json({ shareId: updated.shareId });
   });
 
   app.delete(api.workflows.delete.path, async (req, res) => {
-    const workflow = await storage.getWorkflow(Number(req.params.id));
+    const { userId } = getAuth(req);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+    const workflow = await storage.getWorkflow(Number(req.params.id), userId);
     if (!workflow) {
       return res.status(404).json({ message: 'Workflow not found' });
     }
-    await storage.deleteWorkflow(Number(req.params.id));
+    await storage.deleteWorkflow(Number(req.params.id), userId);
     res.status(204).end();
   });
 
-  app.post(api.workflows.create.path, async (req, res) => {
+  app.post(api.workflows.seedDemos.path, requireAuth(), async (req, res) => {
+    const { userId } = getAuth(req);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
+    await seedDemoWorkflows(userId);
+    const workflows = await storage.getWorkflows(userId);
+    res.json(workflows);
+  });
+
+  app.post(api.workflows.create.path, requireAuth(), async (req, res) => {
+    const { userId } = getAuth(req);
+    console.log("[workflow.create] userId:", userId);
+    if (!userId) return res.status(401).json({ message: "Unauthorized" });
     try {
       const input = api.workflows.create.input.parse(req.body);
-      
+
       const response = await openai.chat.completions.create({
-        model: "gpt-5.1",
+        model: "gpt-4o",
         messages: [
           {
             role: "system",
-            content: `You are an expert AI workflow automation architect. Analyze the given manual business process description and output a structured JSON response. 
+            content: `You are an expert AI workflow automation architect. Analyze the given manual business process description and output a structured JSON response.
 The JSON must contain:
 1. "name": A concise name for this workflow (e.g., "Invoice Processing")
 2. "originalProcess": Array of objects { "id": "step1", "name": "...", "description": "...", "timeSpentMinutes": number }
@@ -105,7 +125,7 @@ Output ONLY valid JSON matching this structure. Do not use markdown blocks.`
       if (!content) throw new Error("No response from AI");
 
       const parsed = JSON.parse(content);
-      
+
       // Calculate tool cost from database
       const recommendedTools = parsed.toolRecommendations || [];
       const toolCostAnnual = recommendedTools.reduce((acc: number, tool: string) => {
@@ -123,6 +143,7 @@ Output ONLY valid JSON matching this structure. Do not use markdown blocks.`
         toolCostAnnual: toolCostAnnual,
         runsPerWeek: Math.round(parsed.runsPerWeek || 5),
         hourlyCost: Math.round(parsed.hourlyCost || 45),
+        userId,
       });
 
       res.status(201).json(workflow);
@@ -133,81 +154,107 @@ Output ONLY valid JSON matching this structure. Do not use markdown blocks.`
           field: err.errors[0].path.join('.'),
         });
       }
-      console.error("AI Generation Error:", err);
+      console.error("[workflow.create] AI Generation Error:", err);
       res.status(500).json({ message: "Failed to generate workflow" });
     }
   });
 
-  seedDatabase();
-
   return httpServer;
 }
 
-async function seedDatabase() {
+async function seedDemoWorkflows(userId: string) {
   try {
-    const existing = await storage.getWorkflows();
-    if (existing.length === 0) {
-      // 1) Ad Creative Review & Approval
-      await storage.createWorkflow({
-        name: "Ad Creative Review & Approval",
-        description: "Our operations team manually reviews advertiser creative assets by downloading files from email, cross-referencing brand guidelines in a Google Doc, logging feedback in a spreadsheet, emailing revision requests back to clients, and updating a Notion tracker with approval status. We process 40 creatives per week. Each review takes 25 minutes. Team hourly rate is $45.",
-        originalProcess: [
-          { id: "step1", name: "Download Assets", description: "Download files from client emails.", timeSpentMinutes: 5 },
-          { id: "step2", name: "Guideline Review", description: "Cross-reference brand guidelines in Google Docs.", timeSpentMinutes: 10 },
-          { id: "step3", name: "Feedback Logging", description: "Log feedback and email revision requests.", timeSpentMinutes: 7 },
-          { id: "step4", name: "Status Update", description: "Update Notion tracker with approval status.", timeSpentMinutes: 3 }
-        ],
-        automationBlueprint: [
-          { id: "auto1", originalStepId: "step1", name: "Email Parser & Asset Sync", description: "Automatically extract attachments and save to Cloud Storage.", toolUsed: "Make Standard", timeSavedMinutes: 4 },
-          { id: "auto2", originalStepId: "step2", name: "AI Guideline Compliance", description: "Use LLM to flag potential brand guideline violations.", toolUsed: "Zapier Professional", timeSavedMinutes: 8 },
-          { id: "auto3", originalStepId: "step4", name: "Auto-Status Sync", description: "Automatically update Notion when review is marked complete.", toolUsed: "Slack", timeSavedMinutes: 2 }
-        ],
-        timeSavedWeekly: 9,
-        timeSavedYearly: 468,
-        priorityScore: 94,
-        toolCostAnnual: 768, // Make Standard (288) + Zapier Professional (480)
-      });
-
-      // 2) Weekly Executive Performance Report
-      await storage.createWorkflow({
-        name: "Weekly Executive Performance Report",
-        description: "Every Monday our analyst manually exports data from Google Analytics, Salesforce, and our internal dashboard into separate CSV files, consolidates everything into an Excel template, builds charts manually, writes a 2 paragraph executive summary, and emails the finished report to 15 stakeholders. This takes 3 hours every single week without fail. Team hourly rate is $55.",
-        originalProcess: [
-          { id: "step1", name: "Data Export", description: "Export CSVs from GA, Salesforce, and Dashboard.", timeSpentMinutes: 60 },
-          { id: "step2", name: "Data Consolidation", description: "Consolidate into Excel and build charts.", timeSpentMinutes: 90 },
-          { id: "step3", name: "Report Writing", description: "Write summary and email 15 stakeholders.", timeSpentMinutes: 30 }
-        ],
-        automationBlueprint: [
-          { id: "auto1", originalStepId: "step1", name: "Automated Data Fetch", description: "Sync data directly into a central warehouse or sheet.", toolUsed: "Salesforce Essentials", timeSavedMinutes: 55 },
-          { id: "auto2", originalStepId: "step2", name: "Dynamic Dashboard", description: "Replace static Excel with real-time Looker/Tableau.", toolUsed: "Microsoft Power Automate", timeSavedMinutes: 85 },
-          { id: "auto3", originalStepId: "step3", name: "AI Summary Generation", description: "Draft executive summary based on weekly metrics.", toolUsed: "Google Workspace", timeSavedMinutes: 20 }
-        ],
-        timeSavedWeekly: 3,
-        timeSavedYearly: 156,
-        priorityScore: 89,
-        toolCostAnnual: 3252, // Salesforce (3000) + Power Automate (180) + Google Workspace (72)
-      });
-
-      // 3) New Client Contract Kickoff
-      await storage.createWorkflow({
-        name: "New Client Contract Kickoff",
-        description: "When a client signs a contract our team manually sends a personalized welcome email, creates their account in Salesforce, opens a dedicated Slack channel, schedules a kickoff call via Calendly, builds a new project in Asana with 12 standard onboarding tasks, generates login credentials, and mails a welcome package. This happens 15 times per month and takes 45 minutes per client. Team hourly rate is $50.",
-        originalProcess: [
-          { id: "step1", name: "CRM & Slack Setup", description: "Create Salesforce account and Slack channel.", timeSpentMinutes: 15 },
-          { id: "step2", name: "Project & Task Setup", description: "Build project in Asana with 12 tasks.", timeSpentMinutes: 20 },
-          { id: "step3", name: "Communication & Logistics", description: "Send welcome email and schedule call.", timeSpentMinutes: 10 }
-        ],
-        automationBlueprint: [
-          { id: "auto1", originalStepId: "step1", name: "Contract-to-Provisioning", description: "Trigger account creation and channel opening from signature.", toolUsed: "HubSpot Starter", timeSavedMinutes: 14 },
-          { id: "auto2", originalStepId: "step2", name: "Asana Template Automation", description: "Auto-duplicate project template with due dates.", toolUsed: "Jira Software", timeSavedMinutes: 18 },
-          { id: "auto3", originalStepId: "step3", name: "Auto-Scheduler Sync", description: "Sync signature date with kickoff scheduling.", toolUsed: "HubSpot Starter", timeSavedMinutes: 8 }
-        ],
-        timeSavedWeekly: 3,
-        timeSavedYearly: 156,
-        priorityScore: 91,
-        toolCostAnnual: 1380, // HubSpot Starter (540) + Jira Software (300) + HubSpot Starter (540)
-      });
+    // Delete any old demo workflows before seeding new ones
+    const existing = await storage.getWorkflows(userId);
+    const OLD_DEMO_NAMES = [
+      "Ad Creative Review & Approval",
+      "Weekly Executive Performance Report",
+      "New Client Contract Kickoff",
+    ];
+    for (const wf of existing) {
+      if (OLD_DEMO_NAMES.includes(wf.name)) {
+        await storage.deleteWorkflow(wf.id, userId);
+      }
     }
+
+    // 1) Advertiser Campaign Launch Checklist
+    await storage.createWorkflow({
+      userId,
+      name: "Advertiser Campaign Launch Checklist",
+      description: "Our ad ops team manually launches advertiser campaigns by retrieving creative assets from email, checking each asset against brand safety guidelines in a shared doc, verifying tracking pixels are firing correctly in the ad server, confirming budget caps are set properly, and sending a launch confirmation email to the client. We launch 25 campaigns per week. Each launch takes 35 minutes. Team hourly rate is $55.",
+      originalProcess: [
+        { id: "step1", name: "Asset Retrieval", description: "Download creative assets from client emails and cloud storage.", timeSpentMinutes: 5 },
+        { id: "step2", name: "Brand Safety Check", description: "Cross-reference assets against brand safety guidelines.", timeSpentMinutes: 12 },
+        { id: "step3", name: "Pixel Verification", description: "Verify tracking pixels are firing correctly in the ad server.", timeSpentMinutes: 8 },
+        { id: "step4", name: "Budget Cap Confirmation", description: "Confirm budget caps and flight dates are configured correctly.", timeSpentMinutes: 5 },
+        { id: "step5", name: "Launch Confirmation Email", description: "Send launch confirmation email to the advertiser.", timeSpentMinutes: 5 },
+      ],
+      automationBlueprint: [
+        { id: "auto1", originalStepId: "step1", name: "Auto-fetch from Cloud Storage", description: "Automatically pull creative assets from cloud storage into the ad server.", toolUsed: "Make Standard", timeSavedMinutes: 4 },
+        { id: "auto2", originalStepId: "step2", name: "AI-Powered Brand Safety Scan", description: "Use AI to scan assets against brand safety guidelines and flag violations.", toolUsed: "Zapier Professional", timeSavedMinutes: 10 },
+        { id: "auto3", originalStepId: "step3", name: "Automated Pixel Validation", description: "Run automated pixel firing checks and surface pass/fail results.", toolUsed: "Make Standard", timeSavedMinutes: 7 },
+        { id: "auto4", originalStepId: "step4", name: "Budget Rule Enforcement", description: "Auto-validate budget caps against insertion order rules before launch.", toolUsed: "Zapier Professional", timeSavedMinutes: 4 },
+        { id: "auto5", originalStepId: "step5", name: "Templated Confirmation Send", description: "Auto-send a templated launch confirmation email upon campaign activation.", toolUsed: "Make Standard", timeSavedMinutes: 4 },
+      ],
+      runsPerWeek: 25,
+      hourlyCost: 55,
+      timeSavedWeekly: 12,
+      timeSavedYearly: 624,
+      priorityScore: 93,
+      toolCostAnnual: 768, // Make Standard (288) + Zapier Professional (480)
+    });
+
+    // 2) Weekly Ad Performance Report
+    await storage.createWorkflow({
+      userId,
+      name: "Weekly Ad Performance Report",
+      description: "Every Monday our analyst manually exports campaign performance data from each ad platform, populates an Excel template with the numbers, builds charts, writes an executive summary, and emails the finished report to 20 stakeholders. This takes 4 hours every week without fail. Team hourly rate is $60.",
+      originalProcess: [
+        { id: "step1", name: "Data Export", description: "Export campaign data CSVs from each ad platform.", timeSpentMinutes: 90 },
+        { id: "step2", name: "Excel Population", description: "Paste data into the Excel template and rebuild charts.", timeSpentMinutes: 60 },
+        { id: "step3", name: "Executive Summary", description: "Write a performance summary narrative for the report.", timeSpentMinutes: 50 },
+        { id: "step4", name: "Stakeholder Distribution", description: "Email the finished report to 20 stakeholders.", timeSpentMinutes: 40 },
+      ],
+      automationBlueprint: [
+        { id: "auto1", originalStepId: "step1", name: "Automated Platform Data Connector", description: "Connect ad platforms directly to a central dashboard via API.", toolUsed: "Microsoft Power Automate", timeSavedMinutes: 80 },
+        { id: "auto2", originalStepId: "step2", name: "Dynamic Dashboard Auto-Population", description: "Replace static Excel with a live dashboard that auto-populates.", toolUsed: "Google Workspace", timeSavedMinutes: 55 },
+        { id: "auto3", originalStepId: "step3", name: "AI-Generated Performance Summary", description: "Use AI to draft the executive summary from the week's metrics.", toolUsed: "Microsoft Power Automate", timeSavedMinutes: 35 },
+        { id: "auto4", originalStepId: "step4", name: "Scheduled Auto-Distribution", description: "Automatically send the report to all stakeholders on a schedule.", toolUsed: "Google Workspace", timeSavedMinutes: 30 },
+      ],
+      runsPerWeek: 1,
+      hourlyCost: 60,
+      timeSavedWeekly: 3,
+      timeSavedYearly: 156,
+      priorityScore: 88,
+      toolCostAnnual: 252, // Microsoft Power Automate (180) + Google Workspace (72)
+    });
+
+    // 3) New Advertiser Onboarding
+    await storage.createWorkflow({
+      userId,
+      name: "New Advertiser Onboarding",
+      description: "When a new advertiser signs up, our team manually creates their platform account, sets up their billing profile, configures a starter campaign template, schedules an onboarding call, and sends welcome documentation. This happens about 30 times per month and each onboarding takes 50 minutes. Team hourly rate is $50.",
+      originalProcess: [
+        { id: "step1", name: "Account Creation", description: "Manually create the advertiser's platform account.", timeSpentMinutes: 15 },
+        { id: "step2", name: "Billing Profile Setup", description: "Configure billing details and payment method.", timeSpentMinutes: 10 },
+        { id: "step3", name: "Campaign Template Config", description: "Apply a starter campaign template to the new account.", timeSpentMinutes: 15 },
+        { id: "step4", name: "Onboarding Call Scheduling", description: "Find availability and schedule the kickoff call.", timeSpentMinutes: 5 },
+        { id: "step5", name: "Welcome Documentation", description: "Send welcome email with platform guides and next steps.", timeSpentMinutes: 5 },
+      ],
+      automationBlueprint: [
+        { id: "auto1", originalStepId: "step1", name: "Auto-Provision Platform Account", description: "Automatically create the advertiser account upon contract signature.", toolUsed: "HubSpot Starter", timeSavedMinutes: 13 },
+        { id: "auto2", originalStepId: "step2", name: "Billing Auto-Configuration", description: "Auto-populate billing profile from CRM data.", toolUsed: "Make Standard", timeSavedMinutes: 9 },
+        { id: "auto3", originalStepId: "step3", name: "Template Auto-Apply", description: "Automatically apply the appropriate campaign template based on advertiser vertical.", toolUsed: "Zapier Starter", timeSavedMinutes: 13 },
+        { id: "auto4", originalStepId: "step4", name: "Calendar Auto-Scheduler", description: "Auto-send a scheduling link and create the calendar event.", toolUsed: "HubSpot Starter", timeSavedMinutes: 4 },
+        { id: "auto5", originalStepId: "step5", name: "Auto-Welcome Email Sequence", description: "Trigger a welcome email sequence with guides upon account creation.", toolUsed: "Make Standard", timeSavedMinutes: 4 },
+      ],
+      runsPerWeek: 7,
+      hourlyCost: 50,
+      timeSavedWeekly: 5,
+      timeSavedYearly: 260,
+      priorityScore: 92,
+      toolCostAnnual: 1068, // HubSpot Starter (540) + Make Standard (288) + Zapier Starter (240)
+    });
   } catch (err) {
     console.error("Seed error:", err);
   }

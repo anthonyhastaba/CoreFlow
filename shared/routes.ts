@@ -57,7 +57,14 @@ export const api = {
         200: z.custom<typeof workflows.$inferSelect>(),
         404: errorSchemas.notFound,
       },
-    }
+    },
+    seedDemos: {
+      method: 'POST' as const,
+      path: '/api/workflows/seed-demos' as const,
+      responses: {
+        200: z.array(z.custom<typeof workflows.$inferSelect>()),
+      },
+    },
   }
 };
 

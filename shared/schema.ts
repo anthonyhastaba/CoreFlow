@@ -21,6 +21,7 @@ export const automatedStepSchema = z.object({
 
 export const workflows = pgTable("workflows", {
   id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
   name: text("name").notNull(),
   description: text("description").notNull(),
   originalProcess: jsonb("original_process").$type<z.infer<typeof stepSchema>[]>().notNull(),

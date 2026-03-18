@@ -1,23 +1,23 @@
 import { db } from "./db";
 import { workflows, type Workflow, type InsertWorkflow } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 
 export interface IStorage {
-  getWorkflows(): Promise<Workflow[]>;
-  getWorkflow(id: number): Promise<Workflow | undefined>;
+  getWorkflows(userId: string): Promise<Workflow[]>;
+  getWorkflow(id: number, userId: string): Promise<Workflow | undefined>;
   getWorkflowByShareId(shareId: string): Promise<Workflow | undefined>;
   createWorkflow(workflow: InsertWorkflow): Promise<Workflow>;
-  updateWorkflow(id: number, updates: Partial<Workflow>): Promise<Workflow>;
-  deleteWorkflow(id: number): Promise<void>;
+  updateWorkflow(id: number, userId: string, updates: Partial<Workflow>): Promise<Workflow>;
+  deleteWorkflow(id: number, userId: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
-  async getWorkflows(): Promise<Workflow[]> {
-    return await db.select().from(workflows).orderBy(desc(workflows.createdAt));
+  async getWorkflows(userId: string): Promise<Workflow[]> {
+    return await db.select().from(workflows).where(eq(workflows.userId, userId)).orderBy(desc(workflows.createdAt));
   }
 
-  async getWorkflow(id: number): Promise<Workflow | undefined> {
-    const [workflow] = await db.select().from(workflows).where(eq(workflows.id, id));
+  async getWorkflow(id: number, userId: string): Promise<Workflow | undefined> {
+    const [workflow] = await db.select().from(workflows).where(and(eq(workflows.id, id), eq(workflows.userId, userId)));
     return workflow;
   }
 
@@ -31,14 +31,15 @@ export class DatabaseStorage implements IStorage {
     return workflow;
   }
 
-  async updateWorkflow(id: number, updates: Partial<Workflow>): Promise<Workflow> {
-    const [workflow] = await db.update(workflows).set(updates).where(eq(workflows.id, id)).returning();
+  async updateWorkflow(id: number, userId: string, updates: Partial<Workflow>): Promise<Workflow> {
+    const [workflow] = await db.update(workflows).set(updates).where(and(eq(workflows.id, id), eq(workflows.userId, userId))).returning();
     return workflow;
   }
 
-  async deleteWorkflow(id: number): Promise<void> {
-    await db.delete(workflows).where(eq(workflows.id, id));
+  async deleteWorkflow(id: number, userId: string): Promise<void> {
+    await db.delete(workflows).where(and(eq(workflows.id, id), eq(workflows.userId, userId)));
   }
+
 }
 
 export const storage = new DatabaseStorage();
