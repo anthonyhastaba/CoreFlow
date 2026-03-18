@@ -31,6 +31,13 @@ const TOOL_COSTS: Record<string, number> = {
 };
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
+  app.get("/api/config", (_req, res) => {
+    const key = process.env.CLERK_PUBLISHABLE_KEY;
+    console.log("[/api/config] CLERK_PUBLISHABLE_KEY:", key ? `${key.slice(0, 12)}...` : "MISSING");
+    if (!key) return res.status(500).json({ message: "CLERK_PUBLISHABLE_KEY is not set" });
+    res.json({ clerkPublishableKey: key });
+  });
+
   app.get(api.workflows.list.path, async (req, res) => {
     const { userId } = getAuth(req);
     if (!userId) return res.status(401).json({ message: "Unauthorized" });

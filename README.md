@@ -99,7 +99,7 @@ All configuration is provided via `.env` (never commit this file):
 |------------------------------|----------|------------------------------------------------------|
 | `DATABASE_URL`               | Yes      | PostgreSQL connection string                         |
 | `OPENAI_API_KEY`             | Yes      | OpenAI API key used for workflow generation          |
-| `VITE_CLERK_PUBLISHABLE_KEY` | Yes      | Clerk publishable key (from Clerk dashboard)         |
+| `CLERK_PUBLISHABLE_KEY`      | Yes      | Clerk publishable key (from Clerk dashboard)         |
 | `OPENAI_BASE_URL`            | No       | Custom OpenAI base URL (defaults to api.openai.com)  |
 | `PORT`                       | No       | Server port (default `5000`)                         |
 
