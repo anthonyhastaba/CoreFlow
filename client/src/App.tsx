@@ -1,5 +1,6 @@
 import { Switch, Route, useRoute, useLocation } from "wouter";
 import { useEffect } from "react";
+import { useAuth, UserButton } from "@clerk/clerk-react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -12,6 +13,9 @@ import WorkflowDetailsPage from "@/pages/WorkflowDetails";
 import LibraryPage from "@/pages/Library";
 import SharedReportPage from "@/pages/SharedReport";
 import ComparePage from "@/pages/Compare";
+import SignInPage from "@/pages/SignIn";
+import SignUpPage from "@/pages/SignUp";
+import LandingPage from "@/pages/Landing";
 
 function ShareRedirect() {
   const [, params] = useRoute("/share/:shareId");
@@ -23,42 +27,67 @@ function ShareRedirect() {
   return null;
 }
 
-function Router() {
+function ProtectedRouter() {
   return (
     <Switch>
-      <Route path="/" component={GeneratePage} />
+      <Route path="/dashboard" component={GeneratePage} />
       <Route path="/workflow/:id" component={WorkflowDetailsPage} />
       <Route path="/library" component={LibraryPage} />
-      <Route path="/share/:shareId" component={ShareRedirect} />
-      <Route path="/shared/:shareId" component={SharedReportPage} />
       <Route path="/compare" component={ComparePage} />
       <Route component={NotFound} />
     </Switch>
   );
 }
 
-function App() {
+function ProtectedLayout() {
+  const { isSignedIn, isLoaded } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      setLocation("/sign-in");
+    }
+  }, [isLoaded, isSignedIn, setLocation]);
+
+  if (!isLoaded || !isSignedIn) return null;
+
   const sidebarStyle = {
     "--sidebar-width": "20rem",
     "--sidebar-width-icon": "4rem",
   } as React.CSSProperties;
 
   return (
+    <SidebarProvider style={sidebarStyle}>
+      <div className="flex h-screen w-full bg-background overflow-hidden selection:bg-primary/30">
+        <WorkflowSidebar />
+        <div className="flex flex-col flex-1 min-w-0 relative">
+          <header className="absolute top-0 left-0 right-0 p-4 z-50 flex items-center justify-between pointer-events-none">
+            <SidebarTrigger className="pointer-events-auto bg-background/50 backdrop-blur border border-border text-foreground hover:bg-secondary" />
+            <div className="pointer-events-auto">
+              <UserButton />
+            </div>
+          </header>
+          <main className="flex-1 flex flex-col h-full overflow-hidden relative z-0">
+            <ProtectedRouter />
+          </main>
+        </div>
+      </div>
+    </SidebarProvider>
+  );
+}
+
+function App() {
+  return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <SidebarProvider style={sidebarStyle}>
-          <div className="flex h-screen w-full bg-background overflow-hidden selection:bg-primary/30">
-            <WorkflowSidebar />
-            <div className="flex flex-col flex-1 min-w-0 relative">
-              <header className="absolute top-0 left-0 right-0 p-4 z-50 flex items-center justify-between pointer-events-none">
-                <SidebarTrigger className="pointer-events-auto bg-background/50 backdrop-blur border border-border text-foreground hover:bg-secondary" />
-              </header>
-              <main className="flex-1 flex flex-col h-full overflow-hidden relative z-0">
-                <Router />
-              </main>
-            </div>
-          </div>
-        </SidebarProvider>
+        <Switch>
+          <Route path="/" component={LandingPage} />
+          <Route path="/sign-in" component={SignInPage} />
+          <Route path="/sign-up" component={SignUpPage} />
+          <Route path="/shared/:shareId" component={SharedReportPage} />
+          <Route path="/share/:shareId" component={ShareRedirect} />
+          <Route component={ProtectedLayout} />
+        </Switch>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
