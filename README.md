@@ -16,7 +16,7 @@ CoreFlow helps you:
 
 CoreFlow is live on Railway:
 
-- **App**: https://coreflow.up.railway.app/
+- **App**: https://coreflow.cc/
 
 ## Screenshot
 
