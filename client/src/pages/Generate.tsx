@@ -1,11 +1,20 @@
 import { useState, useRef, useEffect } from "react";
-import { useCreateWorkflow } from "@/hooks/use-workflows";
+import { useCreateWorkflow, useWorkflows, useSeedDemos } from "@/hooks/use-workflows";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
-import { Sparkles, Cpu, ArrowRight, AlertCircle, X, Info } from "lucide-react";
+import { Sparkles, Cpu, ArrowRight, AlertCircle, X, Info, Loader2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useUser } from "@clerk/clerk-react";
+import WelcomeModal from "@/components/WelcomeModal";
 
 const EXAMPLES = [
   {
@@ -34,9 +43,19 @@ export default function GeneratePage() {
   const [description, setDescription] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPrefilled, setIsPrefilled] = useState(false);
+  const [showAccessModal, setShowAccessModal] = useState(false);
+  const [accessKey, setAccessKey] = useState("");
+  const [accessKeyError, setAccessKeyError] = useState(false);
+  const [showForm, setShowForm] = useState(false);
   const createMutation = useCreateWorkflow();
+  const seedDemosMutation = useSeedDemos();
+  const { data: workflows, isLoading: workflowsLoading } = useWorkflows();
   const [, setLocation] = useLocation();
+  const { user } = useUser();
+
+  const showEmptyState = !workflowsLoading && (workflows?.length ?? 0) === 0 && !showForm && !createMutation.isPending;
   const cancelledRef = useRef(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -48,8 +67,18 @@ export default function GeneratePage() {
     }
   }, []);
 
-  const handleGenerate = () => {
-    if (!description.trim()) return;
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const key = `coreflow_welcomed_${user.id}`;
+    if (!localStorage.getItem(key)) {
+      setShowWelcomeModal(true);
+      localStorage.setItem(key, "true");
+    }
+  }, [user?.id]);
+
+  const runGeneration = () => {
     setError(null);
     cancelledRef.current = false;
     createMutation.mutate(
@@ -66,19 +95,135 @@ export default function GeneratePage() {
     );
   };
 
+  const handleGenerate = () => {
+    if (!description.trim()) return;
+    const validated = localStorage.getItem(`coreflow_access_validated_${user?.id}`);
+    if (!validated) {
+      setShowAccessModal(true);
+      return;
+    }
+    runGeneration();
+  };
+
+  const handleAccessKeySubmit = () => {
+    if (accessKey === "DEMO123") {
+      localStorage.setItem(`coreflow_access_validated_${user?.id}`, "true");
+      setShowAccessModal(false);
+      runGeneration();
+    } else {
+      setAccessKeyError(true);
+    }
+  };
+
   const handleCancel = () => {
     cancelledRef.current = true;
     createMutation.reset();
   };
 
+  const handleWelcomeGenerate = () => {
+    setShowWelcomeModal(false);
+    setShowForm(true);
+    setTimeout(() => textareaRef.current?.focus(), 300);
+  };
+
+  const handleWelcomeDemo = () => {
+    setShowWelcomeModal(false);
+    seedDemosMutation.mutate();
+  };
+
   return (
+    <>
+    <WelcomeModal
+      open={showWelcomeModal}
+      onGenerateClick={handleWelcomeGenerate}
+      onDemoClick={handleWelcomeDemo}
+    />
+    <Dialog open={showAccessModal} onOpenChange={(open) => { setShowAccessModal(open); if (!open) { setAccessKey(""); setAccessKeyError(false); } }}>
+      <DialogContent className="max-w-sm bg-background border border-border/60">
+        <DialogHeader>
+          <DialogTitle className="font-display">Enter access key</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 pt-1">
+          <Input
+            value={accessKey}
+            onChange={(e) => { setAccessKey(e.target.value); setAccessKeyError(false); }}
+            onKeyDown={(e) => { if (e.key === "Enter") handleAccessKeySubmit(); }}
+            placeholder="XXXXXXX"
+            className="bg-secondary/40 border-border/60 focus-visible:ring-primary/30"
+          />
+          {accessKeyError && (
+            <p className="text-xs text-destructive">Invalid access key</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Don't have one?{" "}
+            <span className="text-muted-foreground/60 cursor-default">Request access key</span>
+          </p>
+          <Button
+            onClick={handleAccessKeySubmit}
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl"
+          >
+            Continue
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
     <div className="flex-1 flex flex-col items-center justify-center min-h-screen p-6 relative overflow-hidden dot-grid-bg">
       {/* Ambient glow orbs */}
       <div className="absolute top-1/3 left-1/4 w-[500px] h-[500px] bg-primary/10 rounded-full blur-[180px] pointer-events-none -z-10" />
       <div className="absolute bottom-1/3 right-1/4 w-[400px] h-[400px] bg-indigo-500/8 rounded-full blur-[160px] pointer-events-none -z-10" />
 
       <AnimatePresence mode="wait">
-        {!createMutation.isPending ? (
+        {showEmptyState ? (
+          <motion.div
+            key="empty-state"
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, filter: "blur(8px)" }}
+            transition={{ duration: 0.4 }}
+            className="w-full max-w-md relative z-10 text-center space-y-8"
+          >
+            <motion.div
+              initial={{ scale: 0.7, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.05, type: "spring", stiffness: 220, damping: 18 }}
+              className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 text-primary shadow-[0_0_40px_-6px_rgba(139,92,246,0.6)] mx-auto"
+            >
+              <Sparkles className="w-8 h-8" />
+            </motion.div>
+
+            <div className="space-y-3">
+              <h2 className="text-3xl font-display font-bold tracking-tight">
+                Your workflow library is empty
+              </h2>
+              <p className="text-sm text-muted-foreground leading-relaxed max-w-sm mx-auto">
+                Generate your first automation blueprint or explore demo workflows to see what CoreFlow can do.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-center gap-3">
+              <Button
+                onClick={() => setShowForm(true)}
+                className="rounded-xl px-6 font-semibold bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_20px_-4px_rgba(139,92,246,0.55)] transition-all duration-200 gap-2"
+              >
+                <Sparkles className="w-4 h-4" />
+                Create Automation
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => seedDemosMutation.mutate()}
+                disabled={seedDemosMutation.isPending}
+                className="rounded-xl px-6 font-semibold border-border/60 hover:border-primary/40 hover:bg-secondary/50 transition-all duration-200 gap-2"
+              >
+                {seedDemosMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ArrowRight className="w-4 h-4" />
+                )}
+                Load Demo Workflows
+              </Button>
+            </div>
+          </motion.div>
+        ) : !createMutation.isPending ? (
           <motion.div
             key="input-form"
             initial={{ opacity: 0, y: 24 }}
@@ -146,6 +291,7 @@ export default function GeneratePage() {
 
                 <div className="relative bg-secondary/40 rounded-2xl border border-border/60 backdrop-blur-sm overflow-hidden group-focus-within:border-primary/40 transition-colors duration-300">
                   <Textarea
+                    ref={textareaRef}
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
                     onKeyDown={(e) => {
@@ -155,8 +301,8 @@ export default function GeneratePage() {
                     className="w-full h-44 resize-none bg-transparent border-0 text-base p-5 pb-3 focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/35 leading-relaxed"
                   />
                   {/* Bottom bar */}
-                  <div className="flex items-center justify-between px-5 py-3 border-t border-border/30 bg-background/20">
-                    <span className="text-[11px] text-muted-foreground/40 tabular-nums">
+                  <div className="flex items-center justify-between px-5 py-3 border-t border-border/30 bg-secondary/20">
+                    <span className="text-[11px] text-muted-foreground/60 tabular-nums">
                       {description.length > 0
                         ? `${description.length} characters`
                         : "Cmd+Enter to generate"}
@@ -185,9 +331,9 @@ export default function GeneratePage() {
                       setDescription(ex.description);
                       setIsPrefilled(false);
                     }}
-                    className="text-xs px-3 py-1.5 rounded-full bg-secondary/50 hover:bg-secondary border border-border/40 hover:border-primary/30 text-muted-foreground hover:text-foreground transition-all duration-200"
+                    className="text-xs px-3 py-1.5 rounded-full bg-secondary/40 hover:bg-primary/10 border border-border/50 hover:border-primary/30 text-muted-foreground/70 hover:text-primary transition-all duration-200 font-medium"
                   >
-                    {ex.label}
+                    <span className="mr-1 opacity-50">→</span>{ex.label}
                   </button>
                 ))}
               </div>
@@ -248,5 +394,6 @@ export default function GeneratePage() {
         )}
       </AnimatePresence>
     </div>
+    </>
   );
 }

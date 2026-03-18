@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useWorkflows } from "@/hooks/use-workflows";
-import { useWorkflowStatus } from "@/hooks/use-workflow-status";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +15,7 @@ import {
   ArrowRight,
   Check,
   X,
-  Trophy,
+  Columns2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link, useLocation } from "wouter";
@@ -43,34 +42,9 @@ function SkeletonCard() {
   );
 }
 
-// ─── Status badge ─────────────────────────────────────────────────────────────
-const STATUS_META = {
-  planned:       { label: "Planned",     dot: "bg-amber-400",   text: "text-amber-400",   bg: "bg-amber-500/10   border-amber-500/20"   },
-  "in-progress": { label: "In Progress", dot: "bg-blue-400",    text: "text-blue-400",    bg: "bg-blue-500/10    border-blue-500/20"    },
-  live:          { label: "Live",        dot: "bg-emerald-400", text: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/20" },
-};
-
-function StatusBadge({ status }: { status: "planned" | "in-progress" | "live" }) {
-  const m = STATUS_META[status];
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md border ${m.bg} ${m.text}`}>
-      {status === "live" ? (
-        <span className="relative flex h-1.5 w-1.5">
-          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${m.dot} opacity-75`} />
-          <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${m.dot}`} />
-        </span>
-      ) : (
-        <span className={`w-1.5 h-1.5 rounded-full ${m.dot}`} />
-      )}
-      {m.label}
-    </span>
-  );
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function LibraryPage() {
   const { data: workflows, isLoading } = useWorkflows();
-  const { getStatus, statuses } = useWorkflowStatus();
   const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState<"date" | "score" | "savings">("date");
@@ -103,18 +77,6 @@ export default function LibraryPage() {
         return acc + ((annualSavings * 5 - toolCost * 5) / (toolCost * 5)) * 100;
       }, 0) / workflows.length
     : 0;
-
-  // Status breakdown counts
-  const statusCounts = {
-    planned: 0,
-    "in-progress": 0,
-    live: 0,
-  };
-  if (workflows) {
-    for (const wf of workflows) {
-      statusCounts[getStatus(wf.id)]++;
-    }
-  }
 
   const toggleCompare = (id: number) => {
     setCompareIds((prev) =>
@@ -159,26 +121,6 @@ export default function LibraryPage() {
                 Track and analyze your complete automation portfolio.
               </p>
 
-              {/* Status breakdown pills */}
-              {!isLoading && totalWorkflows > 0 && (
-                <div className="flex items-center gap-2 mt-4 flex-wrap">
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                    {statusCounts.planned} Planned
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                    {statusCounts["in-progress"]} In Progress
-                  </span>
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <span className="relative flex h-1.5 w-1.5">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
-                    </span>
-                    {statusCounts.live} Live
-                  </span>
-                </div>
-              )}
             </div>
 
             <div className="flex items-center gap-6 flex-wrap">
@@ -272,6 +214,43 @@ export default function LibraryPage() {
           </motion.div>
         )}
 
+        {/* Compare bar */}
+        <AnimatePresence>
+          {compareIds.length >= 2 && (
+            <motion.div
+              key="compare-bar"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="flex items-center justify-between gap-4 px-5 py-3 rounded-xl border border-primary/30 bg-primary/5 backdrop-blur-sm"
+            >
+              <div className="flex items-center gap-2.5 text-sm">
+                <Columns2 className="w-4 h-4 text-primary shrink-0" />
+                <span className="text-muted-foreground">
+                  <span className="text-primary font-bold">2</span> blueprints selected for comparison
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => setLocation(`/compare?a=${compareIds[0]}&b=${compareIds[1]}`)}
+                  className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-lg px-4 h-8 text-sm"
+                >
+                  Compare Side by Side
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Button>
+                <button
+                  onClick={() => setCompareIds([])}
+                  className="text-muted-foreground/50 hover:text-muted-foreground transition-colors p-1"
+                  title="Clear selection"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Workflow Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {isLoading
@@ -315,7 +294,7 @@ export default function LibraryPage() {
                       Describe a manual process on the Generate page and your first automation blueprint will appear here.
                     </p>
                   </div>
-                  <Link href="/">
+                  <Link href="/dashboard">
                     <Button className="mt-1 bg-primary/10 text-primary hover:bg-primary/20 border border-primary/20 gap-2">
                       <Plus className="w-4 h-4" />
                       Create your first blueprint
@@ -327,7 +306,6 @@ export default function LibraryPage() {
                 const netSavings = getSavings(wf);
                 const isSelected = compareIds.includes(wf.id);
                 const isDisabled = compareIds.length >= 2 && !isSelected;
-                const status = getStatus(wf.id);
 
                 return (
                   <motion.div
@@ -335,34 +313,18 @@ export default function LibraryPage() {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.06 * idx }}
-                    className="relative"
+                    className="relative group"
                   >
-                    {/* Comparison toggle */}
-                    <button
-                      onClick={() => toggleCompare(wf.id)}
-                      disabled={isDisabled}
-                      title={isDisabled ? "Deselect one to pick this" : isSelected ? "Remove from comparison" : "Add to comparison"}
-                      className={`absolute top-3 right-3 z-20 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all duration-200 ${
-                        isSelected
-                          ? "bg-primary border-primary text-primary-foreground"
-                          : isDisabled
-                          ? "border-border/30 bg-background/40 opacity-25 cursor-not-allowed"
-                          : "border-border/60 bg-background/70 opacity-50 hover:opacity-100 hover:border-primary/60 hover:bg-background"
-                      }`}
-                    >
-                      {isSelected && <Check className="w-3 h-3" />}
-                    </button>
-
+                    <div className={`p-px rounded-xl bg-gradient-to-br transition-all duration-300 ${isSelected ? 'from-primary/40 via-primary/10 to-indigo-500/20' : 'from-border/60 via-transparent to-border/20 group-hover:from-primary/30 group-hover:to-indigo-500/15'}`}>
                     <Card
-                      className={`group hover-elevate bg-card/50 h-full flex flex-col card-top-accent overflow-hidden relative transition-all duration-300 ${
+                      className={`group hover-elevate bg-card/50 h-full flex flex-col card-top-accent overflow-hidden relative transition-all duration-300 rounded-[11px] group-hover:-translate-y-1 ${
                         isSelected
-                          ? "border-primary/40 shadow-[0_0_30px_-10px_rgba(139,92,246,0.35)]"
-                          : "border-border/60 hover:border-primary/20 hover:shadow-[0_0_30px_-10px_rgba(139,92,246,0.2)]"
+                          ? "shadow-[0_0_30px_-10px_rgba(139,92,246,0.35)]"
+                          : "hover:shadow-[0_0_30px_-10px_rgba(139,92,246,0.2)]"
                       }`}
-                      style={{ overflow: "visible" }}
                     >
                       <CardHeader className="pb-3">
-                        <div className="flex justify-between items-start gap-4 pr-6">
+                        <div className="flex justify-between items-start gap-4">
                           <CardTitle className="text-lg font-display group-hover:text-primary transition-colors leading-snug">
                             {wf.name}
                           </CardTitle>
@@ -375,19 +337,37 @@ export default function LibraryPage() {
                             <Calendar className="w-3 h-3" />
                             {format(new Date(wf.createdAt), "MMM d, yyyy")}
                           </div>
-                          <StatusBadge status={status} />
                         </div>
+                        {/* Compare toggle — visible on hover or when selected */}
+                        <button
+                          onClick={() => toggleCompare(wf.id)}
+                          disabled={isDisabled}
+                          className={`mt-2 w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-all duration-200 cursor-pointer
+                            ${isSelected
+                              ? "bg-primary/10 border-primary/30 text-primary"
+                              : isDisabled
+                              ? "opacity-0 pointer-events-none border-transparent"
+                              : "opacity-0 group-hover:opacity-100 border-border/40 text-muted-foreground hover:border-primary/30 hover:text-primary bg-secondary/20"
+                            }`}
+                        >
+                          <div className={`w-3.5 h-3.5 rounded border-[1.5px] flex items-center justify-center shrink-0 transition-colors ${
+                            isSelected ? "bg-primary border-primary" : "border-current"
+                          }`}>
+                            {isSelected && <Check className="w-2.5 h-2.5 text-primary-foreground" />}
+                          </div>
+                          {isSelected ? "Selected for comparison" : "Add to comparison"}
+                        </button>
                       </CardHeader>
                       <CardContent className="flex-1 space-y-4">
                         <div className="grid grid-cols-2 gap-3">
-                          <div className="p-3 rounded-xl bg-secondary/30 border border-border/40">
+                          <div className="p-3 rounded-xl bg-secondary/30 border border-border/40 border-t-2 border-t-primary/30">
                             <p className="text-[10px] uppercase text-muted-foreground font-bold tracking-widest mb-1">Weekly</p>
-                            <p className="text-xl font-display font-bold text-primary">{wf.timeSavedWeekly}h</p>
+                            <p className="text-2xl font-display font-bold text-primary tabular-nums">{wf.timeSavedWeekly}h</p>
                             <p className="text-[10px] text-muted-foreground/50 mt-0.5">saved</p>
                           </div>
-                          <div className="p-3 rounded-xl bg-secondary/30 border border-border/40">
+                          <div className="p-3 rounded-xl bg-secondary/30 border border-border/40 border-t-2 border-t-emerald-500/30">
                             <p className="text-[10px] uppercase text-muted-foreground font-bold tracking-widest mb-1">Annual</p>
-                            <p className="text-xl font-display font-bold text-emerald-400">${netSavings.toLocaleString()}</p>
+                            <p className="text-2xl font-display font-bold text-emerald-400 tabular-nums">${netSavings.toLocaleString()}</p>
                             <p className="text-[10px] text-muted-foreground/50 mt-0.5">net savings</p>
                           </div>
                         </div>
@@ -417,44 +397,13 @@ export default function LibraryPage() {
                         </Link>
                       </CardFooter>
                     </Card>
+                    </div>
                   </motion.div>
                 );
               })}
         </div>
       </div>
 
-      {/* Floating compare bar */}
-      <AnimatePresence>
-        {compareIds.length === 2 && (
-          <motion.div
-            initial={{ y: 80, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: 80, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 28 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-card/95 backdrop-blur-xl border border-primary/30 rounded-2xl shadow-[0_8px_40px_-8px_rgba(139,92,246,0.4)] px-5 py-3.5 flex items-center gap-4"
-          >
-            <div className="flex items-center gap-2 text-sm">
-              <Trophy className="w-4 h-4 text-primary" />
-              <span className="text-muted-foreground">Compare</span>
-              <span className="text-primary font-bold">2</span>
-              <span className="text-muted-foreground">blueprints</span>
-            </div>
-            <Button
-              onClick={() => setLocation(`/compare?a=${compareIds[0]}&b=${compareIds[1]}`)}
-              className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl px-5 h-8 text-sm shadow-[0_0_16px_-4px_rgba(139,92,246,0.6)]"
-            >
-              Compare
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Button>
-            <button
-              onClick={() => setCompareIds([])}
-              className="text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

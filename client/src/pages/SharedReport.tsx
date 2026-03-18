@@ -99,9 +99,9 @@ export default function SharedReportPage() {
   const annualManualCost = Math.round((totalManualTimeMinutes / 60) * currentHourlyCost * currentRuns * 52);
   const annualSavings = Math.round((totalSavedTimeMinutes / 60) * currentHourlyCost * currentRuns * 52);
   const toolCost = Math.round(workflow.toolCostAnnual || 0);
-  const netFirstYearSavings = annualManualCost - toolCost;
+  const netFirstYearSavings = annualSavings - toolCost;
   const fiveYearROI = toolCost > 0
-    ? (((annualManualCost * 5 - toolCost * 5) / (toolCost * 5)) * 100).toFixed(0)
+    ? (((annualSavings * 5 - toolCost * 5) / (toolCost * 5)) * 100).toFixed(0)
     : "100";
   const monthlySavings = annualSavings / 12;
   const paybackMonths = monthlySavings > 0 ? (toolCost / monthlySavings).toFixed(1) : "0";
@@ -290,7 +290,7 @@ export default function SharedReportPage() {
             </div>
             <span className="font-medium text-muted-foreground/70">CoreFlow Automation Engine</span>
           </div>
-          <span>Confidential & Proprietary</span>
+          <span>© 2025 CoreFlow</span>
         </footer>
       </div>
     </div>

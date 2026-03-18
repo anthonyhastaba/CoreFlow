@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuth } from "@clerk/clerk-react";
 import { api, buildUrl } from "@shared/routes";
 import { type Workflow, type CreateWorkflowRequest } from "@shared/schema";
 import { z } from "zod";
@@ -42,12 +43,17 @@ export function useWorkflow(id: number | null) {
 
 export function useCreateWorkflow() {
   const queryClient = useQueryClient();
-  
+  const { getToken } = useAuth();
+
   return useMutation({
     mutationFn: async (data: CreateWorkflowRequest) => {
+      const token = await getToken();
       const res = await fetch(api.workflows.create.path, {
         method: api.workflows.create.method,
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify(data),
         credentials: "include",
       });
@@ -61,6 +67,26 @@ export function useCreateWorkflow() {
       return parseWithLogging(api.workflows.create.responses[201], responseData, "workflows.create");
     },
     onSuccess: (newWorkflow) => {
+      queryClient.invalidateQueries({ queryKey: [api.workflows.list.path] });
+    },
+  });
+}
+
+export function useSeedDemos() {
+  const queryClient = useQueryClient();
+  const { getToken } = useAuth();
+
+  return useMutation({
+    mutationFn: async () => {
+      const token = await getToken();
+      const res = await fetch('/api/workflows/seed-demos', {
+        method: 'POST',
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Failed to seed demos');
+    },
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.workflows.list.path] });
     },
   });

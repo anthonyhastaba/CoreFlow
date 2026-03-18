@@ -1,7 +1,6 @@
 import { useRoute, useLocation } from "wouter";
 import { useWorkflow } from "@/hooks/use-workflows";
 import { useCountUp } from "@/hooks/use-count-up";
-import { useWorkflowStatus } from "@/hooks/use-workflow-status";
 import { MetricCard } from "@/components/MetricCard";
 import { FlowchartVisualizer } from "@/components/FlowchartVisualizer";
 import {
@@ -21,6 +20,13 @@ import { api, buildUrl } from "@shared/routes";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
+import { useUser } from "@clerk/clerk-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 // ─── Skeleton ────────────────────────────────────────────────────────────────
 function WorkflowDetailsSkeleton() {
@@ -47,52 +53,6 @@ function WorkflowDetailsSkeleton() {
   );
 }
 
-// ─── Status Selector ─────────────────────────────────────────────────────────
-type StatusOption = { value: "planned" | "in-progress" | "live"; label: string };
-const STATUS_OPTIONS: StatusOption[] = [
-  { value: "planned",     label: "Planned"     },
-  { value: "in-progress", label: "In Progress" },
-  { value: "live",        label: "Live"        },
-];
-
-const STATUS_STYLES = {
-  planned:     "bg-amber-500/10  text-amber-400  border-amber-500/20",
-  "in-progress": "bg-blue-500/10   text-blue-400   border-blue-500/20",
-  live:        "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
-};
-
-function StatusSelector({ workflowId }: { workflowId: number }) {
-  const { getStatus, setStatus } = useWorkflowStatus();
-  const current = getStatus(workflowId);
-
-  return (
-    <div className="flex items-center gap-1 bg-secondary/30 border border-border/50 rounded-xl p-1">
-      {STATUS_OPTIONS.map(({ value, label }) => {
-        const isActive = current === value;
-        return (
-          <button
-            key={value}
-            onClick={() => setStatus(workflowId, value)}
-            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg font-medium transition-all duration-200 ${
-              isActive
-                ? `border ${STATUS_STYLES[value]} shadow-sm`
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {value === "live" && isActive && (
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
-              </span>
-            )}
-            {label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function WorkflowDetailsPage() {
   const [, params] = useRoute("/workflow/:id");
@@ -113,21 +73,17 @@ export default function WorkflowDetailsPage() {
     },
   });
 
+  const { user } = useUser();
+  const [showAccessModal, setShowAccessModal] = useState(false);
+  const [accessKey, setAccessKey] = useState("");
+  const [accessKeyError, setAccessKeyError] = useState(false);
+
   const [runsPerWeek, setRunsPerWeek] = useState<number | null>(null);
   const [hourlyCost, setHourlyCost] = useState<number | null>(null);
 
   // All calculations use safe fallbacks — hooks must be called before any early returns
-  const defaultRuns = workflow?.name === "Ad Creative Review & Approval" ? 40
-    : workflow?.name === "Weekly Executive Performance Report" ? 1
-    : workflow?.name === "New Client Contract Kickoff" ? 4
-    : 5;
-  const defaultCost = workflow?.name === "Ad Creative Review & Approval" ? 45
-    : workflow?.name === "Weekly Executive Performance Report" ? 55
-    : workflow?.name === "New Client Contract Kickoff" ? 50
-    : 35;
-
-  const currentRuns = runsPerWeek ?? workflow?.runsPerWeek ?? defaultRuns;
-  const currentHourlyCost = hourlyCost ?? workflow?.hourlyCost ?? defaultCost;
+  const currentRuns = runsPerWeek ?? workflow?.runsPerWeek ?? 5;
+  const currentHourlyCost = hourlyCost ?? workflow?.hourlyCost ?? 45;
 
   const totalManualTimeMinutes = workflow?.originalProcess.reduce((acc: number, step: any) => acc + step.timeSpentMinutes, 0) ?? 0;
   const totalSavedTimeMinutes = workflow?.automationBlueprint.reduce((acc: number, step: any) => acc + step.timeSavedMinutes, 0) ?? 0;
@@ -136,10 +92,10 @@ export default function WorkflowDetailsPage() {
   const annualSavings = Math.round((totalSavedTimeMinutes / 60) * currentHourlyCost * currentRuns * 52);
   const weeklySavedHours = Math.round((totalSavedTimeMinutes * currentRuns) / 60);
   const toolCost = Math.round((workflow as any)?.toolCostAnnual || 0);
-  const promptNetFirstYearSavings = annualManualCost - toolCost;
-  const fiveYearManualCost = annualManualCost * 5;
+  const promptNetFirstYearSavings = annualSavings - toolCost;
+  const fiveYearSavings = annualSavings * 5;
   const fiveYearToolCost = toolCost * 5;
-  const promptFiveYearROI = toolCost > 0 ? (((fiveYearManualCost - fiveYearToolCost) / fiveYearToolCost) * 100).toFixed(0) : "100";
+  const promptFiveYearROI = toolCost > 0 ? (((fiveYearSavings - fiveYearToolCost) / fiveYearToolCost) * 100).toFixed(0) : "100";
   const monthlySavings = annualSavings / 12;
   const promptPaybackMonths = monthlySavings > 0 ? (toolCost / monthlySavings).toFixed(1) : "0";
   const efficiencyPct = Math.round((totalSavedTimeMinutes / Math.max(totalManualTimeMinutes, 1)) * 100);
@@ -219,9 +175,60 @@ export default function WorkflowDetailsPage() {
     doc.save(`${workflow.name.replace(/\s+/g, "_")}_Analysis_Report.pdf`);
   };
 
+  const handleExportPDF = () => {
+    const validated = localStorage.getItem(`coreflow_access_validated_${user?.id}`);
+    if (!validated) {
+      setShowAccessModal(true);
+      return;
+    }
+    exportPDF();
+  };
+
+  const handleAccessKeySubmit = () => {
+    if (accessKey === "DEMO123") {
+      localStorage.setItem(`coreflow_access_validated_${user?.id}`, "true");
+      setShowAccessModal(false);
+      setAccessKey("");
+      setAccessKeyError(false);
+      exportPDF();
+    } else {
+      setAccessKeyError(true);
+    }
+  };
+
   return (
+    <>
+    <Dialog open={showAccessModal} onOpenChange={(open) => { setShowAccessModal(open); if (!open) { setAccessKey(""); setAccessKeyError(false); } }}>
+      <DialogContent className="max-w-sm bg-background border border-border/60">
+        <DialogHeader>
+          <DialogTitle className="font-display">Enter access key</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 pt-1">
+          <Input
+            value={accessKey}
+            onChange={(e) => { setAccessKey(e.target.value); setAccessKeyError(false); }}
+            onKeyDown={(e) => { if (e.key === "Enter") handleAccessKeySubmit(); }}
+            placeholder="XXXXXXX"
+            className="bg-secondary/40 border-border/60 focus-visible:ring-primary/30"
+          />
+          {accessKeyError && (
+            <p className="text-xs text-destructive">Invalid access key</p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Don't have one?{" "}
+            <span className="text-muted-foreground/60 cursor-default">Request access key</span>
+          </p>
+          <Button
+            onClick={handleAccessKeySubmit}
+            className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-semibold rounded-xl"
+          >
+            Continue
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
     <div className="flex-1 overflow-y-auto">
-      <div className="max-w-7xl mx-auto px-6 py-12 space-y-12">
+      <div className="max-w-7xl mx-auto px-6 py-12 space-y-14">
 
         {/* Header */}
         <motion.div
@@ -236,8 +243,6 @@ export default function WorkflowDetailsPage() {
                   <Zap className="w-4 h-4" />
                   Automation Blueprint
                 </div>
-                {/* Status selector */}
-                <StatusSelector workflowId={workflow.id} />
               </div>
               <h1 className="text-4xl lg:text-5xl font-display font-bold text-foreground">
                 {workflow.name}
@@ -258,7 +263,7 @@ export default function WorkflowDetailsPage() {
                 Share
               </Button>
               <Button
-                onClick={exportPDF}
+                onClick={handleExportPDF}
                 variant="ghost"
                 className="rounded-none h-9 px-4 gap-2 text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
               >
@@ -289,10 +294,16 @@ export default function WorkflowDetailsPage() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.2 }}
         >
-          <Card className="border-border bg-card/50 backdrop-blur-sm">
-            <CardHeader className="flex flex-row items-center gap-2">
-              <Calculator className="w-5 h-5 text-primary" />
-              <CardTitle>ROI Calculator</CardTitle>
+          <Card className="border-primary/15 bg-card/60 backdrop-blur-sm shadow-[0_0_60px_-20px_rgba(139,92,246,0.2)] relative overflow-hidden">
+            <div className="absolute -top-12 -right-12 w-40 h-40 bg-primary/8 rounded-full blur-3xl pointer-events-none" />
+            <CardHeader className="flex flex-row items-center gap-3 pb-6 border-b border-border/40">
+              <div className="p-2 rounded-lg bg-primary/10 border border-primary/15">
+                <Calculator className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-xl">ROI Calculator</CardTitle>
+                <p className="text-xs text-muted-foreground/60 mt-0.5">Adjust inputs to model your exact scenario</p>
+              </div>
             </CardHeader>
             <CardContent className="space-y-8">
               {!isSavingPositive && (
@@ -313,7 +324,7 @@ export default function WorkflowDetailsPage() {
                       type="number"
                       value={currentRuns}
                       onChange={(e) => setRunsPerWeek(Number(e.target.value))}
-                      className="bg-background/50"
+                      className="bg-background/40 rounded-xl border-border/60 focus-visible:ring-primary/30"
                     />
                   </div>
                   <div className="space-y-2">
@@ -323,7 +334,7 @@ export default function WorkflowDetailsPage() {
                       type="number"
                       value={currentHourlyCost}
                       onChange={(e) => setHourlyCost(Number(e.target.value))}
-                      className="bg-background/50"
+                      className="bg-background/40 rounded-xl border-border/60 focus-visible:ring-primary/30"
                     />
                   </div>
                 </div>
@@ -472,5 +483,6 @@ export default function WorkflowDetailsPage() {
 
       </div>
     </div>
+    </>
   );
 }
